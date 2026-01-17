@@ -1,0 +1,25 @@
+{
+  "name": "@dtrader5.2/bot",
+  "version": "5.2.0",
+  "description": "DTrader-5.2 Bot - Market Data Collector Instance",
+  "main": "dist/app.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "ts-node src/app.ts",
+    "build": "tsc",
+    "start": "node dist/app.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "redis": "^4.7.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.5",
+    "ts-node": "^10.9.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
