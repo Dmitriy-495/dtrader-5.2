@@ -228,7 +228,7 @@ class Bot {
     console.log('');
 
     try {
-      // 1. Подключиться к Redis
+      // 1. Подключиться к Redis (exit если не удалось)
       await this.connectRedis();
       logJson('info', 'REDIS_CONNECTED', { host: this.config.redis.host, port: this.config.redis.port });
 
@@ -311,7 +311,13 @@ class Bot {
       logJson('error', 'REDIS_ERROR', undefined, err.message);
     });
 
-    await this.redisClient.connect();
+    try {
+      await this.redisClient.connect();
+    } catch (error) {
+      const err = error as Error;
+      logJson('error', 'REDIS_CONNECTION_FAILED', undefined, err.message);
+      process.exit(1);
+    }
   }
 
   async stop(): Promise<void> {

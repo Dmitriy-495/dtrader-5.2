@@ -1,0 +1,15 @@
+{
+  "name": "@dtrader5.2/ws-client",
+  "version": "5.2.0",
+  "description": "DTrader-5.2 WebSocket Test Client",
+  "main": "src/client.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/client.js",
+    "dev": "node src/client.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "ws": "^8.18.0"
+  }
+}
