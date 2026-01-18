@@ -15,6 +15,7 @@ import { createHmac, createHash } from 'crypto';
 import * as https from 'https';
 import { AppConfig, UnifiedAccount, WalletBalance, AccountBalance, SystemHeartbeat, BalanceChangedMessage } from './types';
 import { WebSocketService } from './adapters/gate-io/websocket-service';
+import { Logger } from './utils/logger';
 
 dotenv.config();
 
@@ -76,24 +77,6 @@ function logJson(level: 'info' | 'error' | 'warn', event: string, data?: any, er
     console.error(JSON.stringify(logEntry));
   } else {
     console.log(JSON.stringify(logEntry));
-  }
-}
-
-// ============================================
-// SIMPLE LOGGER FOR WEBSOCKET SERVICE
-// ============================================
-
-class SimpleLogger {
-  info(event: string, data?: any): void {
-    logJson('info', event, data);
-  }
-
-  error(event: string, message: string, data?: any): void {
-    logJson('error', event, data, message);
-  }
-
-  warn(event: string, data?: any): void {
-    logJson('warn', event, data);
   }
 }
 
@@ -304,10 +287,11 @@ class Bot {
       logJson('info', 'BALANCE_PUBLISHED', balanceMsg);
 
       // 7. Запустить WebSocket Service (heartbeat + баланс обновления)
+      const logger = new Logger();
       this.wsService = new WebSocketService(
         this.config.gateio,
         this.redisClient,
-        new SimpleLogger()
+        logger
       );
 
       await this.wsService.connect();
