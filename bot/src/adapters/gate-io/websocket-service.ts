@@ -143,7 +143,7 @@ export class WebSocketService {
   }
 
   isConnected_(): boolean {
-    return this.isConnected && (this.wsManager?.isConnected() || true );
+    return this.isConnected && (this.wsManager?.isConnected() || false);
   }
 
   getHeartbeatStats(): any {
