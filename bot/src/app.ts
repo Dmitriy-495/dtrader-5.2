@@ -4,11 +4,9 @@
  * Функции:
  * 1. Загрузить конфигурацию
  * 2. Подключиться к Redis
- * 3. Подключиться к Gate.io (REST API)
- * 4. Получить UnifiedAccount + WalletBalance
- * 5. Сохранить в Redis Hash
- * 6. Опубликовать в Pub/Sub
- * 7. Graceful shutdown на SIGINT
+ * 3. Загрузить начальный баланс (REST API)
+ * 4. Запустить WebSocket Service (heartbeat + баланс обновления)
+ * 5. Graceful shutdown на SIGINT
  */
 
 import * as dotenv from 'dotenv';
@@ -16,6 +14,7 @@ import { createClient } from 'redis';
 import { createHmac, createHash } from 'crypto';
 import * as https from 'https';
 import { AppConfig, UnifiedAccount, WalletBalance, AccountBalance, SystemHeartbeat, BalanceChangedMessage } from './types';
+import { WebSocketService } from './adapters/gate-io/websocket-service';
 
 dotenv.config();
 
@@ -63,7 +62,7 @@ function loadConfig(): AppConfig {
 // LOGGER
 // ============================================
 
-function logJson(level: 'info' | 'error', event: string, data?: any, error?: string): void {
+function logJson(level: 'info' | 'error' | 'warn', event: string, data?: any, error?: string): void {
   const logEntry = {
     timestamp: Date.now(),
     level,
@@ -77,6 +76,24 @@ function logJson(level: 'info' | 'error', event: string, data?: any, error?: str
     console.error(JSON.stringify(logEntry));
   } else {
     console.log(JSON.stringify(logEntry));
+  }
+}
+
+// ============================================
+// SIMPLE LOGGER FOR WEBSOCKET SERVICE
+// ============================================
+
+class SimpleLogger {
+  info(event: string, data?: any): void {
+    logJson('info', event, data);
+  }
+
+  error(event: string, message: string, data?: any): void {
+    logJson('error', event, data, message);
+  }
+
+  warn(event: string, data?: any): void {
+    logJson('warn', event, data);
   }
 }
 
@@ -214,6 +231,7 @@ async function fetchWalletTotalBalance(config: AppConfig): Promise<WalletBalance
 class Bot {
   private config: AppConfig;
   private redisClient: any = null;
+  private wsService: WebSocketService | null = null;
   private isShuttingDown = false;
 
   constructor(config: AppConfig) {
@@ -285,8 +303,18 @@ class Bot {
       await this.redisClient.publish('event:balance:changed', JSON.stringify(balanceMsg));
       logJson('info', 'BALANCE_PUBLISHED', balanceMsg);
 
+      // 7. Запустить WebSocket Service (heartbeat + баланс обновления)
+      this.wsService = new WebSocketService(
+        this.config.gateio,
+        this.redisClient,
+        new SimpleLogger()
+      );
+
+      await this.wsService.connect();
+      logJson('info', 'WEBSOCKET_SERVICE_STARTED');
+
       console.log('');
-      console.log('✅ Bot initialization complete');
+      console.log('✅ Bot running | WebSocket Service active (heartbeat + balance updates)');
       console.log('');
 
       // Graceful shutdown
@@ -325,6 +353,10 @@ class Bot {
     this.isShuttingDown = true;
 
     logJson('info', 'BOT_SHUTTING_DOWN');
+
+    if (this.wsService) {
+      await this.wsService.disconnect();
+    }
 
     if (this.redisClient) {
       await this.redisClient.quit();
