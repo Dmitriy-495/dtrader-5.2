@@ -1,14 +1,14 @@
 /**
  * DTrader-5.2 WebSocket Test Client
- * Простой Node.js клиент для тестирования WS-Server
+ * Красивый вывод с временем, ping_id, latency, status
  */
 
-require('dotenv').config();
-const WebSocket = require('ws');
+require("dotenv").config();
+const WebSocket = require("ws");
 
 const config = {
-  wsServerUrl: process.env.WS_SERVER_URL || 'ws://localhost:2808',
-  authToken: process.env.WS_AUTH_TOKEN || '',
+  wsServerUrl: process.env.WS_SERVER_URL || "ws://localhost:2808",
+  authToken: process.env.WS_AUTH_TOKEN || "",
 };
 
 class WsClient {
@@ -20,141 +20,210 @@ class WsClient {
     this.lastMessageTime = Date.now();
   }
 
-  logJson(level, event, data = {}) {
-    const log = {
-      timestamp: Date.now(),
-      level,
-      service: 'ws-client',
-      event,
-      ...data,
-    };
-
-    if (level === 'error') {
-      console.error(JSON.stringify(log));
-    } else {
-      console.log(JSON.stringify(log));
-    }
+  /**
+   * Форматирует время в HH:MM:SS
+   */
+  formatTime(timestamp) {
+    const date = new Date(timestamp);
+    const hours = date.getHours().toString().padStart(2, "0");
+    const minutes = date.getMinutes().toString().padStart(2, "0");
+    const seconds = date.getSeconds().toString().padStart(2, "0");
+    return `${hours}:${minutes}:${seconds}`;
   }
 
-  prettyLog(emoji, time, message, color = '') {
-    const colorCodes = {
-      green: '\x1b[32m',
-      yellow: '\x1b[33m',
-      red: '\x1b[31m',
-      cyan: '\x1b[36m',
-      magenta: '\x1b[35m',
-      reset: '\x1b[0m',
+  /**
+   * Вывод с цветом и emoji
+   */
+  printMessage(emoji, time, message, color = "") {
+    const colors = {
+      green: "\x1b[32m",
+      yellow: "\x1b[33m",
+      red: "\x1b[31m",
+      cyan: "\x1b[36m",
+      magenta: "\x1b[35m",
+      blue: "\x1b[34m",
+      white: "\x1b[37m",
+      reset: "\x1b[0m",
     };
 
-    const colorCode = colorCodes[color] || '';
-    const reset = colorCodes.reset;
+    const colorCode = colors[color] || "";
+    const reset = colors.reset;
 
     console.log(`${colorCode}${emoji} [${time}] ${message}${reset}`);
   }
 
-  formatTime(timestamp) {
-    const date = new Date(timestamp);
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    const seconds = date.getSeconds().toString().padStart(2, '0');
-    return `${hours}:${minutes}:${seconds}`;
-  }
-
+  /**
+   * Подключение к серверу
+   */
   connect() {
     console.clear();
-    console.log('╔════════════════════════════════════════════════════════════════╗');
-    console.log('║       📡 DTrader-5.2 WebSocket Test Client 📡                ║');
-    console.log('╚════════════════════════════════════════════════════════════════╝');
-    console.log('');
+    console.log(
+      "╔════════════════════════════════════════════════════════════════╗",
+    );
+    console.log(
+      "║       📡 DTrader-5.2 WebSocket Client - Phase 2 📡            ║",
+    );
+    console.log(
+      "╚════════════════════════════════════════════════════════════════╝",
+    );
+    console.log("");
 
     const url = `${config.wsServerUrl}?token=${config.authToken}`;
 
     this.ws = new WebSocket(url);
 
-    this.ws.on('open', () => this.onOpen());
-    this.ws.on('message', (data) => this.onMessage(data));
-    this.ws.on('error', (error) => this.onError(error));
-    this.ws.on('close', (code, reason) => this.onClose(code, reason));
+    this.ws.on("open", () => this.onOpen());
+    this.ws.on("message", (data) => this.onMessage(data));
+    this.ws.on("error", (error) => this.onError(error));
+    this.ws.on("close", (code, reason) => this.onClose(code, reason));
   }
 
+  /**
+   * WebSocket открыт
+   */
   onOpen() {
     this.isConnected = true;
     const time = this.formatTime(Date.now());
-    this.prettyLog('✅', time, 'Connected to WS-Server', 'green');
+    this.printMessage("✅", time, "Connected to WS-Server", "green");
+    console.log("");
   }
 
+  /**
+   * Получено сообщение
+   */
   onMessage(data) {
     try {
       this.messageCount++;
       this.lastMessageTime = Date.now();
       const message = JSON.parse(data.toString());
-
-      // JSON логирование
-      this.logJson('info', `MESSAGE_${this.messageCount}`, {
-        event: message.event,
-        data: message.data,
-      });
-
-      // Pretty-print для консоли
       const time = this.formatTime(Date.now());
 
-      if (message.type === 'initial_state') {
-        this.prettyLog('📊', time, 'Initial State Received', 'cyan');
-        if (message.data.balance) {
-          console.log(`   Balance: ${message.data.balance.usdt} USDT`);
+      // ============================================
+      // HEARTBEAT PONG (основное событие)
+      // ============================================
+      if (message.event === "heartbeat:pong") {
+        const pingId = message.data?.ping_id ?? "?";
+        const latency = message.data?.latency || "?";
+        const status = message.data?.status || "unknown";
+
+        let color = "green";
+        if (latency > 500) color = "yellow";
+        if (latency > 1000) color = "red";
+
+        const msg = `Latency: ${latency}ms | Status: ${status}`;
+        this.printMessage("💓", time, msg, color);
+      }
+
+      // ============================================
+      // INITIAL STATE (при подключении)
+      // ============================================
+      else if (message.type === "initial_state") {
+        if (message.data?.balance) {
+          const balance = message.data.balance.usdt || "?";
+          this.printMessage(
+            "📊",
+            time,
+            `Initial Balance: ${balance} USDT`,
+            "cyan",
+          );
         }
-      } else if (message.event === 'balance:changed') {
-        this.prettyLog('💰', time, 'Balance Changed', 'magenta');
-        console.log(`   USDT: ${message.data.usdt}`);
-      } else if (message.event === 'heartbeat:pong') {
-        this.prettyLog('💓', time, 'Heartbeat Pong', 'yellow');
-        console.log(`   Status: ${message.data.status} | Latency: ${message.data.latency}ms`);
-      } else if (message.type === 'error') {
-        this.prettyLog('❌', time, `Error: ${message.event}`, 'red');
-        console.log(`   ${message.message}`);
-      } else if (message.type === 'reconnected') {
-        this.prettyLog('🔄', time, 'Reconnected', 'green');
+      }
+
+      // ============================================
+      // HEARTBEAT FAILED (потеря соединения)
+      // ============================================
+      else if (message.event === "heartbeat:failed") {
+        this.printMessage("❌", time, "Heartbeat Failed - Retrying...", "red");
+      }
+
+      // ============================================
+      // HEARTBEAT RECOVERED (восстановление)
+      // ============================================
+      else if (message.event === "heartbeat:recovered") {
+        this.printMessage("🔄", time, "Heartbeat Recovered!", "green");
+      }
+
+      // ============================================
+      // BALANCE CHANGED
+      // ============================================
+      else if (message.event === "balance:changed") {
+        const usdt = message.data?.usdt || "?";
+        this.printMessage(
+          "💰",
+          time,
+          `Balance Changed: ${usdt} USDT`,
+          "magenta",
+        );
+      }
+
+      // ============================================
+      // REDIS DISCONNECTED
+      // ============================================
+      else if (message.event === "REDIS_DISCONNECTED") {
+        this.printMessage("⚠️ ", time, "Redis Disconnected", "yellow");
+      }
+
+      // ============================================
+      // REDIS RECONNECTED
+      // ============================================
+      else if (message.event === "REDIS_RECONNECTED") {
+        this.printMessage("✅", time, "Redis Reconnected", "green");
+      }
+
+      // ============================================
+      // UNKNOWN EVENT
+      // ============================================
+      else {
+        this.printMessage(
+          "📬",
+          time,
+          `Event: ${message.event || "unknown"}`,
+          "blue",
+        );
       }
     } catch (error) {
       const time = this.formatTime(Date.now());
-      this.prettyLog('❌', time, `Parse error: ${error.message}`, 'red');
-      this.logJson('error', 'MESSAGE_PARSE_ERROR', { error: error.message });
+      this.printMessage("❌", time, `Parse error: ${error.message}`, "red");
     }
   }
 
+  /**
+   * Ошибка соединения
+   */
   onError(error) {
     const time = this.formatTime(Date.now());
-    this.prettyLog('❌', time, `Connection error: ${error.message}`, 'red');
-    this.logJson('error', 'WS_ERROR', { error: error.message });
+    this.printMessage("❌", time, `Connection error: ${error.message}`, "red");
   }
 
+  /**
+   * WebSocket закрыт
+   */
   onClose(code, reason) {
     this.isConnected = false;
     const time = this.formatTime(Date.now());
     const uptimeSec = Math.floor((Date.now() - this.startTime) / 1000);
 
-    console.log('');
-    this.prettyLog('🔌', time, `Disconnected | Code: ${code}`, 'yellow');
-    console.log('');
-    console.log('─'.repeat(64));
+    console.log("");
+    this.printMessage("🔌", time, `Disconnected | Code: ${code}`, "yellow");
+    console.log("");
+    console.log("─".repeat(64));
     console.log(`  📊 Statistics:`);
     console.log(`     Messages received: ${this.messageCount}`);
     console.log(`     Uptime: ${uptimeSec}s`);
     if (this.messageCount > 0) {
-      console.log(`     Avg interval: ${Math.floor(uptimeSec / this.messageCount)}s`);
+      console.log(
+        `     Avg interval: ${Math.floor(uptimeSec / this.messageCount)}s`,
+      );
     }
-    console.log('─'.repeat(64));
-
-    this.logJson('info', 'CLIENT_DISCONNECTED', {
-      code,
-      messages_received: this.messageCount,
-      uptime_seconds: uptimeSec,
-    });
+    console.log("─".repeat(64));
   }
 
+  /**
+   * Отключение
+   */
   disconnect() {
     if (this.ws) {
-      this.ws.close(1000, 'Client disconnect');
+      this.ws.close(1000, "Client disconnect");
     }
   }
 }
@@ -165,13 +234,13 @@ class WsClient {
 
 const client = new WsClient();
 
-process.on('SIGINT', () => {
-  console.log('');
+process.on("SIGINT", () => {
+  console.log("");
   client.disconnect();
   setTimeout(() => process.exit(0), 500);
 });
 
-process.on('uncaughtException', (error) => {
+process.on("uncaughtException", (error) => {
   console.error(`❌ Error: ${error.message}`);
   client.disconnect();
   process.exit(1);
