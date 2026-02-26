@@ -2,6 +2,7 @@
  * Heartbeat Manager - управление ping-pong механизмом
  * FIX: Используем spot.ping для Unified API (не futures.ping!)
  * FIX: Добавляем UNIQUE ID каждому ping'у для отслеживания
+ * FIX: Рекурсивный setTimeout вместо setInterval (правильный timing!)
  */
 
 import { WebSocketManager } from "../adapters/gate-io/websocket-manager";
@@ -25,7 +26,7 @@ export class HeartbeatManager {
   private wsManager: WebSocketManager;
   private config: HeartbeatConfig;
   private logger: Logger;
-  private pingIntervalId: NodeJS.Timeout | null = null;
+  private pingLoopId: NodeJS.Timeout | null = null; // ← Рекурсивный setTimeout
   private pongTimeoutId: NodeJS.Timeout | null = null;
   private isRunning: boolean = false;
   private currentPingId: number = 0; // ← UNIQUE ID каждого пинга
@@ -66,6 +67,7 @@ export class HeartbeatManager {
       ping_interval: this.config.pingInterval,
       pong_timeout: this.config.pongTimeout,
       channel: "spot.ping (Unified API)",
+      strategy: "recursive_setTimeout (accurate timing)",
     });
 
     // Подписываемся на pong события (UNIFIED API использует spot.pong!)
@@ -73,13 +75,10 @@ export class HeartbeatManager {
       this.handlePong(data);
     });
 
-    // Начинаем ping loop
-    this.pingIntervalId = setInterval(() => {
-      this.sendPing();
-    }, this.config.pingInterval);
-
-    // Отправляем первый ping сразу
-    this.sendPing();
+    // 🔥 РЕКУРСИВНЫЙ setTimeout вместо setInterval!
+    // Это обеспечивает ТОЧНЫЙ интервал между ОТПРАВКАМИ
+    // независимо от времени обработки ответов!
+    this.startPingLoop();
   }
 
   stop(): void {
@@ -87,9 +86,9 @@ export class HeartbeatManager {
 
     this.logger.info("HEARTBEAT_STOPPED");
 
-    if (this.pingIntervalId) {
-      clearInterval(this.pingIntervalId);
-      this.pingIntervalId = null;
+    if (this.pingLoopId) {
+      clearTimeout(this.pingLoopId);
+      this.pingLoopId = null;
     }
 
     if (this.pongTimeoutId) {
@@ -98,6 +97,23 @@ export class HeartbeatManager {
     }
 
     this.isRunning = false;
+  }
+
+  /**
+   * 🔥 РЕКУРСИВНЫЙ PING LOOP
+   * Отправляет пинг и планирует следующий через точный интервал
+   */
+  private startPingLoop(): void {
+    if (!this.isRunning) return;
+
+    // Отправляем текущий ping
+    this.sendPing();
+
+    // 🔥 КЛЮЧЕВОЕ: Планируем СЛЕДУЮЩИЙ ping через ТОЧНЫЙ интервал
+    // независимо от того, когда пришёл ответ!
+    this.pingLoopId = setTimeout(() => {
+      this.startPingLoop(); // ← РЕКУРСИЯ!
+    }, this.config.pingInterval);
   }
 
   private sendPing(): void {
@@ -126,9 +142,15 @@ export class HeartbeatManager {
         this.pendingPingTimestamp = Date.now();
         this.retryAttempt = 0;
 
-        this.logger.info("PING_SENT", {
+        // 🔥 ДЕТАЛЬНЫЙ TIMING ЛОГИРОВАНИЕ
+        const now = new Date(this.pendingPingTimestamp);
+        const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}.${now.getMilliseconds().toString().padStart(3, "0")}`;
+
+        this.logger.info("PING_SENT_DETAILED", {
           ping_number: this.stats.totalPings,
-          ping_id: pingId, // ← Логируем ID
+          ping_id: pingId,
+          sent_at: timeStr,
+          sent_at_ms: this.pendingPingTimestamp,
           timestamp,
           channel: "spot.ping",
         });
@@ -189,10 +211,20 @@ export class HeartbeatManager {
     this.stats.status = "online";
     this.retryAttempt = 0;
 
-    this.logger.info("PONG_RECEIVED", {
+    // 🔥 ДЕТАЛЬНЫЙ TIMING ЛОГИРОВАНИЕ
+    const nowDate = new Date(now);
+    const sentDate = new Date(this.pendingPingTimestamp);
+    const receivedTimeStr = `${nowDate.getHours().toString().padStart(2, "0")}:${nowDate.getMinutes().toString().padStart(2, "0")}:${nowDate.getSeconds().toString().padStart(2, "0")}.${nowDate.getMilliseconds().toString().padStart(3, "0")}`;
+    const sentTimeStr = `${sentDate.getHours().toString().padStart(2, "0")}:${sentDate.getMinutes().toString().padStart(2, "0")}:${sentDate.getSeconds().toString().padStart(2, "0")}.${sentDate.getMilliseconds().toString().padStart(3, "0")}`;
+
+    this.logger.info("PONG_RECEIVED_DETAILED", {
       pong_number: this.stats.successfulPongs,
-      ping_id: this.currentPingId, // ← Логируем ID
-      latency,
+      ping_id: this.currentPingId,
+      sent_at: sentTimeStr,
+      sent_at_ms: this.pendingPingTimestamp,
+      received_at: receivedTimeStr,
+      received_at_ms: now,
+      latency_ms: latency,
       total_pings: this.stats.totalPings,
       pong_time: data.time,
     });
@@ -252,6 +284,8 @@ export class HeartbeatManager {
     this.messageCallback("event:heartbeat:pong", {
       status: "online",
       latency,
+      ping_id: this.currentPingId,
+      pong_number: this.stats.successfulPongs,
       updated_at: Date.now().toString(),
       source: "bot",
     }).catch((error) => {

@@ -11,15 +11,15 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "redis": "^4.7.0",
     "dotenv": "^16.4.7",
+    "redis": "^4.7.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.2",
     "@types/node": "^22.10.5",
     "@types/ws": "^8.5.13",
-    "ts-node": "^10.9.2"
+    "ts-node": "^1.7.1",
+    "typescript": "^5.7.2"
   },
   "engines": {
     "node": ">=20.0.0"

@@ -2,28 +2,32 @@
  * WebSocket Service - управление всеми WebSocket операциями
  * Координирует heartbeat, баланс и другие подписки
  * FIX: Используем Unified API endpoint (api.gateio.ws/ws/v4/)
+ * FIX: Динамический ping interval из config
  */
 
 import { createClient, RedisClientType } from "redis";
 import { WebSocketManager } from "./websocket-manager";
 import { HeartbeatManager } from "../../core/heartbeat-manager";
 import { Logger } from "../../utils/logger";
-import { GateioConfig } from "../../types";
+import { GateioConfig, WebSocketConfig } from "../../types";
 
 export class WebSocketService {
   private wsManager: WebSocketManager | null = null;
   private heartbeatManager: HeartbeatManager | null = null;
   private redisClient: RedisClientType;
   private logger: Logger;
-  private config: GateioConfig;
+  private gateioConfig: GateioConfig;
+  private websocketConfig: WebSocketConfig;
   private isConnected: boolean = false;
 
   constructor(
-    config: GateioConfig,
+    gateioConfig: GateioConfig,
+    websocketConfig: WebSocketConfig,
     redisClient: RedisClientType,
     logger: Logger,
   ) {
-    this.config = config;
+    this.gateioConfig = gateioConfig;
+    this.websocketConfig = websocketConfig;
     this.redisClient = redisClient;
     this.logger = logger;
   }
@@ -52,20 +56,27 @@ export class WebSocketService {
         this.handleBalanceUpdate(data);
       });
 
-      // Создаём Heartbeat Manager
-      // Он использует spot.ping/spot.pong (Unified API)
+      // 🔥 ДИНАМИЧЕСКИЙ PING INTERVAL ИЗ CONFIG!
+      const pingInterval = this.websocketConfig.pingInterval || 15000;
+      const pongTimeout = this.websocketConfig.pongTimeout || 3000;
+
+      // Создаём Heartbeat Manager с динамическим интервалом
       this.heartbeatManager = new HeartbeatManager(
         this.wsManager,
         {
-          pingInterval: 15000, // 15 сек
-          pongTimeout: 3000, // 3 сек timeout
+          pingInterval: pingInterval, // ✅ БЕРЁМ ИЗ CONFIG!
+          pongTimeout: pongTimeout, // ✅ БЕРЁМ ИЗ CONFIG!
         },
         this.logger,
         (event: string, data: any) => this.publishEvent(event, data),
       );
 
+      this.logger.info("HEARTBEAT_MANAGER_STARTED", {
+        ping_interval_ms: pingInterval,
+        pong_timeout_ms: pongTimeout,
+      });
+
       await this.heartbeatManager.start();
-      this.logger.info("HEARTBEAT_MANAGER_STARTED");
 
       this.isConnected = true;
     } catch (error) {
